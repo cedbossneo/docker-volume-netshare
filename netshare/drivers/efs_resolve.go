@@ -57,7 +57,7 @@ func (l *Resolver) lookup(name string, connType string) (*dns.Msg, error) {
 		if connType == "" {
 			return l.lookup(name, "tcp")
 		} else {
-			return nil, fmt.Errorf("Couldn't resolve name '%s' : %s", name, err.Error())
+			return nil, fmt.Errorf("Couldn't resolve Name '%s' : %s", name, err.Error())
 		}
 	}
 

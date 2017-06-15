@@ -12,16 +12,16 @@ type volumeDriver struct {
 	m      *sync.Mutex
 }
 
-func newVolumeDriver(root string) volumeDriver {
+func newVolumeDriver(root string, consulAddress string, consulToken string, consulBaseKey string) volumeDriver {
 	return volumeDriver{
 		root:   root,
-		mountm: NewVolumeManager(),
+		mountm: NewVolumeManager(consulAddress, consulToken, consulBaseKey),
 		m:      &sync.Mutex{},
 	}
 }
 
 func (v volumeDriver) Create(r volume.Request) volume.Response {
-	log.Debugf("Entering Create: name: %s, options %v", r.Name, r.Options)
+	log.Debugf("Entering Create: Name: %s, options %v", r.Name, r.Options)
 
 	v.m.Lock()
 	defer v.m.Unlock()
@@ -33,7 +33,7 @@ func (v volumeDriver) Create(r volume.Request) volume.Response {
 			r.Options = resOpts
 		}
 	}
-	log.Debugf("Create volume -> name: %s, %v", resName, r.Options)
+	log.Debugf("Create volume -> Name: %s, %v", resName, r.Options)
 
 	dest := mountpoint(v.root, resName)
 	if err := createDest(dest); err != nil {
@@ -48,7 +48,7 @@ func (v volumeDriver) Remove(r volume.Request) volume.Response {
 
 	resolvedName, _ := resolveName(r.Name)
 
-	log.Debugf("Entering Remove: name: %s, resolved-name: %s, options %v", r.Name, resolvedName, r.Options)
+	log.Debugf("Entering Remove: Name: %s, resolved-Name: %s, options %v", r.Name, resolvedName, r.Options)
 	v.m.Lock()
 	defer v.m.Unlock()
 

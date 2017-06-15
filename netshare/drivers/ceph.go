@@ -23,9 +23,9 @@ type cephDriver struct {
 	cephopts   map[string]string
 }
 
-func NewCephDriver(root string, username string, password string, context string, cephmount string, cephport string, localmount string, cephopts string) cephDriver {
+func NewCephDriver(root string, consulAddress string, consulToken string, consulBaseKey string, username string, password string, context string, cephmount string, cephport string, localmount string, cephopts string) cephDriver {
 	d := cephDriver{
-		volumeDriver: newVolumeDriver(root),
+		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
 		username:     username,
 		password:     password,
 		context:      context,
@@ -81,7 +81,7 @@ func (n cephDriver) Unmount(r volume.UnmountRequest) volume.Response {
 		n.mountm.Decrement(r.Name)
 	}
 
-	log.Infof("Unmounting volume name %s from %s", r.Name, hostdir)
+	log.Infof("Unmounting volume Name %s from %s", r.Name, hostdir)
 
 	if err := run(fmt.Sprintf("umount %s", hostdir)); err != nil {
 		return volume.Response{Err: err.Error()}
@@ -111,7 +111,7 @@ func (n cephDriver) mountVolume(name, source, dest string) error {
 	options := n.mountOptions(n.mountm.GetOptions(name))
 	opts := ""
 	if val, ok := options[CephOptions]; ok {
-		fmt.Println("opts = ", val)
+		fmt.Println("Opts = ", val)
 		opts = "-o " + val
 	}
 
@@ -121,7 +121,7 @@ func (n cephDriver) mountVolume(name, source, dest string) error {
 		mountCmd = mountCmd + " -t ceph"
 	}
 
-	//cmd = fmt.Sprintf("%s -t ceph %s:%s:/ -o %s,%s,%s %s %s", mountCmd, n.cephmount, n.cephport, n.context, n.username, n.password, opts, dest)
+	//cmd = fmt.Sprintf("%s -t ceph %s:%s:/ -o %s,%s,%s %s %s", mountCmd, n.cephmount, n.cephport, n.context, n.username, n.password, Opts, dest)
 	cmd = fmt.Sprintf("%s -t ceph %s -o %s,%s,%s %s %s", mountCmd, source, n.context, n.username, n.password, opts, dest)
 
 	log.Debugf("exec: %s\n", strings.Replace(cmd, ","+n.password, ",****", 1))

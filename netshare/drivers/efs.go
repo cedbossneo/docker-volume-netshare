@@ -22,10 +22,10 @@ type efsDriver struct {
 	dnscache  map[string]string
 }
 
-func NewEFSDriver(root, az, nameserver string, resolve bool) efsDriver {
+func NewEFSDriver(root, consulAddress string, consulToken string, consulBaseKey string, az, nameserver string, resolve bool) efsDriver {
 
 	d := efsDriver{
-		volumeDriver: newVolumeDriver(root),
+		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
 		resolve:      resolve,
 		dnscache:     map[string]string{},
 	}

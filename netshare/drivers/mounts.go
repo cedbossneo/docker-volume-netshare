@@ -1,10 +1,13 @@
 package drivers
 
 import (
+	"encoding/json"
 	"errors"
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/go-plugins-helpers/volume"
+	"github.com/hashicorp/consul/api"
 	"strings"
+	"os"
 )
 
 const (
@@ -13,39 +16,90 @@ const (
 )
 
 type mount struct {
-	name        string
-	hostdir     string
-	connections int
-	opts        map[string]string
-	managed     bool
+	Name        string
+	HostDir     string
+	Opts        map[string]string
+	Managed     bool
+	Connections map[string]int
 }
 
 type mountManager struct {
-	mounts map[string]*mount
+	consulClient  *api.Client
+	consulKV      *api.KV
+	consulBaseKey string
+	host		  string
 }
 
-func NewVolumeManager() *mountManager {
-	return &mountManager{
-		mounts: map[string]*mount{},
+func NewVolumeManager(consulAddress string, consulToken string, consulBaseKey string) *mountManager {
+	consulClient, err := api.NewClient(&api.Config{
+		Address: consulAddress,
+		Token:   consulToken,
+	})
+	if err != nil {
+		panic(err)
 	}
+	consulKV := consulClient.KV()
+	log.Info("Consul ready on ", consulAddress, " with baseKey ", consulBaseKey)
+	host, _ := os.Hostname();
+	return &mountManager{consulClient: consulClient, consulKV: consulKV, consulBaseKey: consulBaseKey, host: host}
+}
+
+func (m *mountManager) getConsulMount(name string) *mount {
+	key, _, err := m.consulKV.Get(m.consulBaseKey+name, nil)
+	if err != nil {
+		log.Error(err)
+	}
+	if key == nil {
+		return nil
+	}
+	mount := mount{}
+	json.Unmarshal(key.Value, &mount)
+	log.Info("Retrieve mount ", mount.Name, " from consul")
+	return &mount
+}
+
+func (m *mountManager) putConsulMount(mount *mount) error {
+	key, _, err := m.consulKV.Get(m.consulBaseKey+mount.Name, nil)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if key == nil {
+		key = &api.KVPair{Key: m.consulBaseKey + mount.Name}
+	}
+	jsonMount, _ := json.Marshal(mount)
+	key.Value = jsonMount
+	_, err = m.consulKV.Put(key, nil)
+	log.Info("Put mount ", mount.Name, " in consul")
+	return err
+}
+
+func (m *mountManager) deleteConsulMount(name string) error {
+	_, err := m.consulKV.Delete(m.consulBaseKey+name, nil)
+	if err != nil {
+		log.Error(err)
+	}
+	log.Info("Delete mount ", name, " from consul")
+	return err
 }
 
 func (m *mountManager) HasMount(name string) bool {
-	_, found := m.mounts[name]
-	return found
+	mount := m.getConsulMount(name)
+	return mount != nil
 }
 
 func (m *mountManager) HasOptions(name string) bool {
-	c, found := m.mounts[name]
-	if found {
-		return c.opts != nil && len(c.opts) > 0
+	mount := m.getConsulMount(name)
+	if mount != nil {
+		return mount.Opts != nil && len(mount.Opts) > 0
 	}
 	return false
 }
 
 func (m *mountManager) HasOption(name, key string) bool {
 	if m.HasOptions(name) {
-		if _, ok := m.mounts[name].opts[key]; ok {
+		mount := m.getConsulMount(name)
+		if _, ok := mount.Opts[key]; ok {
 			return ok
 		}
 	}
@@ -54,15 +108,16 @@ func (m *mountManager) HasOption(name, key string) bool {
 
 func (m *mountManager) GetOptions(name string) map[string]string {
 	if m.HasOptions(name) {
-		c, _ := m.mounts[name]
-		return c.opts
+		mount := m.getConsulMount(name)
+		return mount.Opts
 	}
 	return map[string]string{}
 }
 
 func (m *mountManager) GetOption(name, key string) string {
 	if m.HasOption(name, key) {
-		v, _ := m.mounts[name].opts[key]
+		mount := m.getConsulMount(name)
+		v, _ := mount.Opts[key]
 		return v
 	}
 	return ""
@@ -77,35 +132,41 @@ func (m *mountManager) GetOptionAsBool(name, key string) bool {
 }
 
 func (m *mountManager) IsActiveMount(name string) bool {
-	c, found := m.mounts[name]
-	return found && c.connections > 0
+	mount := m.getConsulMount(name)
+	return mount != nil && mount.Connections[m.host] > 0
 }
 
 func (m *mountManager) Count(name string) int {
-	c, found := m.mounts[name]
-	if found {
-		return c.connections
+	mount := m.getConsulMount(name)
+	if mount != nil {
+		return mount.Connections[m.host]
 	}
 	return 0
 }
 
 func (m *mountManager) Add(name, hostdir string) {
-	_, found := m.mounts[name]
-	if found {
+	mnt := m.getConsulMount(name)
+	if mnt != nil {
 		m.Increment(name)
 	} else {
-		m.mounts[name] = &mount{name: name, hostdir: hostdir, managed: false, connections: 1}
+		c := map[string]int{}
+		c[m.host] = 1
+		mnt := &mount{Name: name, HostDir: hostdir, Managed: false, Connections: c}
+		m.putConsulMount(mnt)
 	}
 }
 
 func (m *mountManager) Create(name, hostdir string, opts map[string]string) *mount {
-	c, found := m.mounts[name]
-	if found && c.connections > 0 {
-		c.opts = opts
-		return c
+	mnt := m.getConsulMount(name)
+	if mnt != nil && mnt.Connections[m.host] > 0 {
+		mnt.Opts = opts
+		m.putConsulMount(mnt)
+		return mnt
 	} else {
-		mnt := &mount{name: name, hostdir: hostdir, managed: true, opts: opts, connections: 0}
-		m.mounts[name] = mnt
+		c := map[string]int{}
+		c[m.host] = 0
+		mnt := &mount{Name: name, HostDir: hostdir, Managed: true, Opts: opts, Connections: c}
+		m.putConsulMount(mnt)
 		return mnt
 	}
 }
@@ -114,35 +175,42 @@ func (m *mountManager) Delete(name string) error {
 	log.Debugf("Delete volume: %s, connections: %d", name, m.Count(name))
 	if m.HasMount(name) {
 		if m.Count(name) < 1 {
-			delete(m.mounts, name)
+			m.deleteConsulMount(name)
 			return nil
 		}
 		return errors.New("Volume is currently in use")
 	}
+	m.deleteConsulMount(name)
 	return nil
 }
 
 func (m *mountManager) DeleteIfNotManaged(name string) error {
-	if m.HasMount(name) && !m.IsActiveMount(name) && !m.mounts[name].managed {
-		log.Infof("Removing un-managed volume")
+	if m.HasMount(name) && !m.IsActiveMount(name) {
+		mount := m.getConsulMount(name)
+		if mount.Managed {
+			return nil
+		}
+		log.Infof("Removing un-Managed volume")
 		return m.Delete(name)
 	}
 	return nil
 }
 
 func (m *mountManager) Increment(name string) int {
-	c, found := m.mounts[name]
-	if found {
-		c.connections++
-		return c.connections
+	mount := m.getConsulMount(name)
+	if mount != nil {
+		mount.Connections[m.host]++
+		m.putConsulMount(mount)
+		return mount.Connections[m.host]
 	}
 	return 0
 }
 
 func (m *mountManager) Decrement(name string) int {
-	c, found := m.mounts[name]
-	if found && c.connections > 0 {
-		c.connections--
+	mount := m.getConsulMount(name)
+	if mount != nil && mount.Connections[m.host] > 0 {
+		mount.Connections[m.host]--
+		m.putConsulMount(mount)
 	}
 	return 0
 }
@@ -151,8 +219,20 @@ func (m *mountManager) GetVolumes(rootPath string) []*volume.Volume {
 
 	volumes := []*volume.Volume{}
 
-	for _, mount := range m.mounts {
-		volumes = append(volumes, &volume.Volume{Name: mount.name, Mountpoint: mount.hostdir})
+	keys, _, _ := m.consulKV.List(m.consulBaseKey, nil)
+	log.Info("List mounts from consul")
+	if keys == nil {
+		return volumes
+	}
+	for _, val := range keys {
+		mount := mount{}
+		json.Unmarshal(val.Value, &mount)
+		volumes = append(volumes, &volume.Volume{Name: mount.Name, Mountpoint: mount.HostDir})
 	}
 	return volumes
+}
+
+func (n cephDriver) isMounted(path string) error {
+	cmd := "grep -qs '"+path+"' /proc/mounts"
+	return run(cmd)
 }

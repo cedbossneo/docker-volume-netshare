@@ -50,9 +50,9 @@ func NewCifsCredentials(user, pass, domain, security, fileMode, dirMode string) 
 }
 
 // NewCIFSDriver creating the cifs driver
-func NewCIFSDriver(root string, creds *CifsCreds, netrc, cifsopts string) CifsDriver {
+func NewCIFSDriver(root string, consulAddress string, consulToken string, consulBaseKey string, creds *CifsCreds, netrc, cifsopts string) CifsDriver {
 	d := CifsDriver{
-		volumeDriver: newVolumeDriver(root),
+		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
 		creds:        creds,
 		netrc:        parseNetRC(netrc),
 		cifsopts:     map[string]string{},
@@ -153,7 +153,7 @@ func (c CifsDriver) Unmount(r volume.UnmountRequest) volume.Response {
 	// When there is a dangling mount you will lose all your data in the mounted folder
 	// I didn't understand why you delete all the data ...?
 
-	// if err := os.RemoveAll(hostdir); err != nil {
+	// if err := os.RemoveAll(HostDir); err != nil {
 	//  	return volume.Response{Err: err.Error()}
 	// }
 

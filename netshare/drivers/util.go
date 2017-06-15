@@ -30,8 +30,8 @@ func createDest(dest string) error {
 	return nil
 }
 
-// Used to support on the fly volume creation using docker run. If = is in the name we split
-// and elem[1] is the volume name
+// Used to support on the fly volume creation using docker run. If = is in the Name we split
+// and elem[1] is the volume Name
 func resolveName(name string) (string, map[string]string) {
 	if strings.Contains(name, ShareSplitIndentifer) {
 		sharevol := strings.Split(name, ShareSplitIndentifer)

@@ -23,9 +23,9 @@ var (
 	EmptyMap = map[string]string{}
 )
 
-func NewNFSDriver(root string, version int, nfsopts string) nfsDriver {
+func NewNFSDriver(root string, consulAddress string, consulToken string, consulBaseKey string, version int, nfsopts string) nfsDriver {
 	d := nfsDriver{
-		volumeDriver: newVolumeDriver(root),
+		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
 		version:      version,
 		nfsopts:      map[string]string{},
 	}
@@ -112,7 +112,7 @@ func (n nfsDriver) Unmount(r volume.UnmountRequest) volume.Response {
 		n.mountm.Decrement(resolvedName)
 	}
 
-	log.Infof("Unmounting volume name %s from %s", resolvedName, hostdir)
+	log.Infof("Unmounting volume Name %s from %s", resolvedName, hostdir)
 
 	if err := run(fmt.Sprintf("umount %s", hostdir)); err != nil {
 		log.Errorf("Error unmounting volume from host: %s", err.Error())
