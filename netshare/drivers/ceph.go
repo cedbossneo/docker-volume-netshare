@@ -21,11 +21,12 @@ type cephDriver struct {
 	cephport   string
 	localmount string
 	cephopts   map[string]string
+	useVault bool
 }
 
-func NewCephDriver(root string, consulAddress string, consulToken string, consulBaseKey string, username string, password string, context string, cephmount string, cephport string, localmount string, cephopts string) cephDriver {
+func NewCephDriver(root string, consulConfig *ConsulConfig, vaultConfig *VaultConfig, useVault bool, username string, password string, context string, cephmount string, cephport string, localmount string, cephopts string) cephDriver {
 	d := cephDriver{
-		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
+		volumeDriver: newVolumeDriver(root, consulConfig, vaultConfig),
 		username:     username,
 		password:     password,
 		context:      context,
@@ -33,6 +34,7 @@ func NewCephDriver(root string, consulAddress string, consulToken string, consul
 		cephport:     cephport,
 		localmount:   localmount,
 		cephopts:     map[string]string{},
+		useVault:	  useVault,
 	}
 	if len(cephopts) > 0 {
 		d.cephopts[CephOptions] = cephopts
@@ -108,6 +110,14 @@ func (n cephDriver) fixSource(name, id string) string {
 func (n cephDriver) mountVolume(name, source, dest string) error {
 	var cmd string
 
+	if n.useVault {
+		opts := n.mountm.FillVaultConfigInOpts(name, map[string]string{
+			"username": n.username,
+			"password": n.password,
+		})
+		n.username = opts["username"]
+		n.password = opts["password"]
+	}
 	options := n.mountOptions(n.mountm.GetOptions(name))
 	opts := ""
 	if val, ok := options[CephOptions]; ok {

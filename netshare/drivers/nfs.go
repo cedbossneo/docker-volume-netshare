@@ -17,17 +17,19 @@ type nfsDriver struct {
 	volumeDriver
 	version int
 	nfsopts map[string]string
+	useVault bool
 }
 
 var (
 	EmptyMap = map[string]string{}
 )
 
-func NewNFSDriver(root string, consulAddress string, consulToken string, consulBaseKey string, version int, nfsopts string) nfsDriver {
+func NewNFSDriver(root string, consulConfig *ConsulConfig, vaultConfig *VaultConfig, useVault bool, version int, nfsopts string) nfsDriver {
 	d := nfsDriver{
-		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
+		volumeDriver: newVolumeDriver(root, consulConfig, vaultConfig),
 		version:      version,
 		nfsopts:      map[string]string{},
+		useVault:     useVault,
 	}
 
 	if len(nfsopts) > 0 {

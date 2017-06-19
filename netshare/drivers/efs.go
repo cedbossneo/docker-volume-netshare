@@ -20,14 +20,16 @@ type efsDriver struct {
 	region    string
 	resolver  *Resolver
 	dnscache  map[string]string
+	useVault bool
 }
 
-func NewEFSDriver(root, consulAddress string, consulToken string, consulBaseKey string, az, nameserver string, resolve bool) efsDriver {
+func NewEFSDriver(root string, consulConfig *ConsulConfig, vaultConfig *VaultConfig, useVault bool, az, nameserver string, resolve bool) efsDriver {
 
 	d := efsDriver{
-		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
+		volumeDriver: newVolumeDriver(root, consulConfig, vaultConfig),
 		resolve:      resolve,
 		dnscache:     map[string]string{},
+		useVault:     useVault,
 	}
 
 	if resolve {

@@ -5,9 +5,11 @@ import (
 	"errors"
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/go-plugins-helpers/volume"
-	"github.com/hashicorp/consul/api"
+	consulApi "github.com/hashicorp/consul/api"
+	vaultApi "github.com/hashicorp/vault/api"
 	"strings"
 	"os"
+	"net/http"
 )
 
 const (
@@ -24,28 +26,49 @@ type mount struct {
 }
 
 type mountManager struct {
-	consulClient  *api.Client
-	consulKV      *api.KV
-	consulBaseKey string
+	consulConfig *ConsulConfig
+	consulClient  *consulApi.Client
+	consulKV	 *consulApi.KV
+	vaultConfig *VaultConfig
+	vaultClient *vaultApi.Client
 	host		  string
 }
 
-func NewVolumeManager(consulAddress string, consulToken string, consulBaseKey string) *mountManager {
-	consulClient, err := api.NewClient(&api.Config{
-		Address: consulAddress,
-		Token:   consulToken,
-	})
+func NewVolumeManager(consulConfig *ConsulConfig, vaultConfig *VaultConfig) *mountManager {
+	consulClient, consulKV := createConsulClient(consulConfig)
+	vaultClient := createVaultClient(vaultConfig)
+	host, _ := os.Hostname();
+	return &mountManager{vaultConfig: vaultConfig, vaultClient: vaultClient, consulClient: consulClient, consulConfig: consulConfig, consulKV: consulKV, host: host}
+}
+
+func createVaultClient(vaultConfig *VaultConfig) *vaultApi.Client {
+	config := vaultApi.DefaultConfig()
+	config.Address = vaultConfig.Address
+	config.HttpClient.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify = true
+	vaultClient, err := vaultApi.NewClient(config)
+	if err != nil {
+		log.Fatal("err: %s", err)
+		return nil
+	}
+	log.Info("Created Vault Client. Address: ", vaultConfig.Address)
+	return vaultClient
+}
+
+func createConsulClient(consulConfig *ConsulConfig) (*consulApi.Client, *consulApi.KV) {
+	config := consulApi.DefaultConfig()
+	config.Address = consulConfig.Address
+	config.Token = consulConfig.Token
+	consulClient, err := consulApi.NewClient(config)
 	if err != nil {
 		panic(err)
 	}
 	consulKV := consulClient.KV()
-	log.Info("Consul ready on ", consulAddress, " with baseKey ", consulBaseKey)
-	host, _ := os.Hostname();
-	return &mountManager{consulClient: consulClient, consulKV: consulKV, consulBaseKey: consulBaseKey, host: host}
+	log.Info("Consul ready on ", consulConfig.Address, " with baseKey ", consulConfig.BaseKey)
+	return consulClient, consulKV
 }
 
 func (m *mountManager) getConsulMount(name string) *mount {
-	key, _, err := m.consulKV.Get(m.consulBaseKey+name, nil)
+	key, _, err := m.consulKV.Get(m.consulConfig.BaseKey+name, nil)
 	if err != nil {
 		log.Error(err)
 	}
@@ -58,14 +81,53 @@ func (m *mountManager) getConsulMount(name string) *mount {
 	return &mount
 }
 
+func (m *mountManager) getVaultConfig(name string) map[string]interface{} {
+	if m.vaultClient == nil {
+		return nil
+	}
+	secret, err := m.vaultClient.Logical().Write("auth/approle/login", map[string]interface{}{
+		"role_id": m.vaultConfig.RoleId,
+		"secret_id": m.vaultConfig.SecretId,
+	})
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+	m.vaultClient.SetToken(secret.Auth.ClientToken)
+	secret, err = m.vaultClient.Logical().Read(m.vaultConfig.BaseKey + name)
+	return secret.Data
+}
+
+func (m *mountManager) FillVaultConfigInMount(name string) *mount {
+	mount := m.getConsulMount(name)
+	data := m.getVaultConfig(name)
+	if data != nil {
+		for key, val := range data {
+			mount.Opts[key] = val.(string)
+		}
+	}
+	return mount
+}
+
+func (m *mountManager) FillVaultConfigInOpts(name string, opts map[string]string) map[string]string {
+	data := m.getVaultConfig(name)
+	if data == nil {
+		return opts
+	}
+	for key, val := range data {
+		opts[key] = val.(string)
+	}
+	return opts
+}
+
 func (m *mountManager) putConsulMount(mount *mount) error {
-	key, _, err := m.consulKV.Get(m.consulBaseKey+mount.Name, nil)
+	key, _, err := m.consulKV.Get(m.consulConfig.BaseKey+mount.Name, nil)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 	if key == nil {
-		key = &api.KVPair{Key: m.consulBaseKey + mount.Name}
+		key = &consulApi.KVPair{Key: m.consulConfig.BaseKey + mount.Name}
 	}
 	jsonMount, _ := json.Marshal(mount)
 	key.Value = jsonMount
@@ -75,7 +137,7 @@ func (m *mountManager) putConsulMount(mount *mount) error {
 }
 
 func (m *mountManager) deleteConsulMount(name string) error {
-	_, err := m.consulKV.Delete(m.consulBaseKey+name, nil)
+	_, err := m.consulKV.Delete(m.consulConfig.BaseKey+name, nil)
 	if err != nil {
 		log.Error(err)
 	}
@@ -219,7 +281,7 @@ func (m *mountManager) GetVolumes(rootPath string) []*volume.Volume {
 
 	volumes := []*volume.Volume{}
 
-	keys, _, _ := m.consulKV.List(m.consulBaseKey, nil)
+	keys, _, _ := m.consulKV.List(m.consulConfig.BaseKey, nil)
 	log.Info("List mounts from consul")
 	if keys == nil {
 		return volumes

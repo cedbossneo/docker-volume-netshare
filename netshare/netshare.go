@@ -13,43 +13,48 @@ import (
 )
 
 const (
-	UsernameFlag     	= "username"
-	PasswordFlag     	= "password"
-	DomainFlag       	= "domain"
-	SecurityFlag     	= "security"
-	FileModeFlag     	= "fileMode"
-	DirModeFlag      	= "dirMode"
-	VersionFlag      	= "version"
-	OptionsFlag      	= "options"
-	BasedirFlag      	= "basedir"
-	VerboseFlag      	= "verbose"
-	AvailZoneFlag    	= "az"
-	NoResolveFlag    	= "noresolve"
-	NetRCFlag        	= "netrc"
-	TCPFlag          	= "tcp"
-	PortFlag         	= "port"
-	NameServerFlag   	= "nameserver"
-	NameFlag         	= "name"
-	SecretFlag       	= "secret"
-	ContextFlag      	= "context"
-	CephMount        	= "sorcemount"
-	CephPort         	= "port"
-	CephOpts         	= "options"
-	ServerMount      	= "servermount"
-	EnvSambaUser     	= "NETSHARE_CIFS_USERNAME"
-	EnvSambaPass     	= "NETSHARE_CIFS_PASSWORD"
-	EnvSambaWG       	= "NETSHARE_CIFS_DOMAIN"
-	EnvSambaSec      	= "NETSHARE_CIFS_SECURITY"
-	EnvSambaFileMode 	= "NETSHARE_CIFS_FILEMODE"
-	EnvSambaDirMode  	= "NETSHARE_CIFS_DIRMODE"
-	EnvNfsVers       	= "NETSHARE_NFS_VERSION"
-	EnvTCP           	= "NETSHARE_TCP_ENABLED"
-	EnvTCPAddr       	= "NETSHARE_TCP_ADDR"
-	PluginAlias 	    = "netshare"
-	ConsulAddressFlag 	= "consul-address"
-	ConsulTokenFlag 	= "consul-token"
-	ConsulBaseKeyFlag 	= "consul-base-key"
-	NetshareHelp     = `
+	UsernameFlag   = "username"
+	PasswordFlag   = "password"
+	UseVaultFlag   = "use-vault"
+	DomainFlag     = "domain"
+	SecurityFlag   = "security"
+	FileModeFlag   = "fileMode"
+	DirModeFlag    = "dirMode"
+	VersionFlag    = "version"
+	OptionsFlag    = "options"
+	BasedirFlag    = "basedir"
+	VerboseFlag    = "verbose"
+	AvailZoneFlag  = "az"
+	NoResolveFlag  = "noresolve"
+	NetRCFlag      = "netrc"
+	TCPFlag        = "tcp"
+	PortFlag       = "port"
+	NameServerFlag = "nameserver"
+	NameFlag       = "name"
+	SecretFlag     = "secret"
+	ContextFlag    = "context"
+	CephMount         = "sorcemount"
+	CephPort          = "port"
+	CephOpts          = "options"
+	ServerMount       = "servermount"
+	EnvSambaUser      = "NETSHARE_CIFS_USERNAME"
+	EnvSambaPass      = "NETSHARE_CIFS_PASSWORD"
+	EnvSambaWG        = "NETSHARE_CIFS_DOMAIN"
+	EnvSambaSec       = "NETSHARE_CIFS_SECURITY"
+	EnvSambaFileMode  = "NETSHARE_CIFS_FILEMODE"
+	EnvSambaDirMode   = "NETSHARE_CIFS_DIRMODE"
+	EnvNfsVers        = "NETSHARE_NFS_VERSION"
+	EnvTCP            = "NETSHARE_TCP_ENABLED"
+	EnvTCPAddr        = "NETSHARE_TCP_ADDR"
+	PluginAlias       = "netshare"
+	ConsulAddressFlag = "consul-address"
+	ConsulTokenFlag   = "consul-token"
+	ConsulBaseKeyFlag = "consul-base-key"
+	VaultAddressFlag  = "vault-address"
+	VaultSecretIdFlag = "vault-secret-id"
+	VaultRoleIdFlag   = "vault-role-id"
+	VaultBaseKeyFlag  = "vault-base-key"
+	NetshareHelp      = `
 	docker-volume-netshare (NFS V3/4, AWS EFS and CIFS Volume Driver Plugin)
 
 Provides docker volume support for NFS v3 and 4, EFS as well as CIFS.  This plugin can be run multiple times to
@@ -98,12 +103,12 @@ var (
 			fmt.Printf("\nVersion: %s - Built: %s\n\n", Version, BuildDate)
 		},
 	}
+	consulConfig *drivers.ConsulConfig = &drivers.ConsulConfig{}
+	vaultConfig *drivers.VaultConfig = &drivers.VaultConfig{}
+	useVault  bool			= false
 	baseDir          		= ""
 	Version   string 		= ""
 	BuildDate string 		= ""
-	consulAddress string 	= ""
-	consulToken string 		= ""
-	consulBaseKey string 	= ""
 )
 
 func Execute() {
@@ -118,9 +123,14 @@ func setupFlags() {
 	rootCmd.PersistentFlags().Bool(TCPFlag, false, "Bind to TCP rather than Unix sockets.  Can also be set via NETSHARE_TCP_ENABLED")
 	rootCmd.PersistentFlags().String(PortFlag, ":8877", "TCP Port if --tcp flag is true.  :PORT for all interfaces or ADDRESS:PORT to bind.")
 	rootCmd.PersistentFlags().Bool(VerboseFlag, false, "Turns on verbose logging")
-	rootCmd.PersistentFlags().StringVar(&consulAddress, ConsulAddressFlag, "", "Consul KV address")
-	rootCmd.PersistentFlags().StringVar(&consulToken, ConsulTokenFlag, "", "Consul KV token")
-	rootCmd.PersistentFlags().StringVar(&consulBaseKey, ConsulBaseKeyFlag, "", "Consul KV base key")
+	rootCmd.PersistentFlags().StringVar(&consulConfig.Address, ConsulAddressFlag, "", "Consul KV address")
+	rootCmd.PersistentFlags().StringVar(&consulConfig.Token, ConsulTokenFlag, "", "Consul KV token")
+	rootCmd.PersistentFlags().StringVar(&consulConfig.BaseKey, ConsulBaseKeyFlag, "", "Consul KV base key")
+	rootCmd.PersistentFlags().StringVar(&vaultConfig.Address, VaultAddressFlag, "", "Vault address")
+	rootCmd.PersistentFlags().StringVar(&vaultConfig.SecretId, VaultSecretIdFlag, "", "Vault secret id")
+	rootCmd.PersistentFlags().StringVar(&vaultConfig.RoleId, VaultRoleIdFlag, "", "Vault role id")
+	rootCmd.PersistentFlags().StringVar(&vaultConfig.BaseKey, VaultBaseKeyFlag, "", "Vault base key")
+	rootCmd.PersistentFlags().BoolVar(&useVault, UseVaultFlag, false, "Use Vault")
 
 	cifsCmd.Flags().StringP(UsernameFlag, "u", "", "Username to use for mounts.  Can also set environment NETSHARE_CIFS_USERNAME")
 	cifsCmd.Flags().StringP(PasswordFlag, "p", "", "Password to use for mounts.  Can also set environment NETSHARE_CIFS_PASSWORD")
@@ -173,7 +183,7 @@ func execCEPH(cmd *cobra.Command, args []string) {
 	if len(context) > 0 {
 		context = "context=" + "\"" + context + "\""
 	}
-	d := drivers.NewCephDriver(rootForType(drivers.CEPH), consulAddress, consulToken, consulBaseKey, username, password, context, cephmount, cephport, servermount, cephopts)
+	d := drivers.NewCephDriver(rootForType(drivers.CEPH), consulConfig, vaultConfig, useVault, username, password, context, cephmount, cephport, servermount, cephopts)
 	start(drivers.CEPH, d)
 }
 
@@ -187,7 +197,7 @@ func execNFS(cmd *cobra.Command, args []string) {
 		}
 	}
 	options, _ := cmd.Flags().GetString(OptionsFlag)
-	d := drivers.NewNFSDriver(rootForType(drivers.NFS), consulAddress, consulToken, consulBaseKey, version, options)
+	d := drivers.NewNFSDriver(rootForType(drivers.NFS), consulConfig, vaultConfig, useVault, version, options)
 	startOutput(fmt.Sprintf("NFS Version %d :: options: '%s'", version, options))
 	start(drivers.NFS, d)
 }
@@ -196,7 +206,7 @@ func execEFS(cmd *cobra.Command, args []string) {
 	az, _ := cmd.Flags().GetString(AvailZoneFlag)
 	resolve, _ := cmd.Flags().GetBool(NoResolveFlag)
 	ns, _ := cmd.Flags().GetString(NameServerFlag)
-	d := drivers.NewEFSDriver(rootForType(drivers.EFS), consulAddress, consulToken, consulBaseKey, az, ns, !resolve)
+	d := drivers.NewEFSDriver(rootForType(drivers.EFS), consulConfig, vaultConfig, useVault, az, ns, !resolve)
 	startOutput(fmt.Sprintf("EFS :: availability-zone: %s, resolve: %v, ns: %s", az, resolve, ns))
 	start(drivers.EFS, d)
 }
@@ -212,8 +222,7 @@ func execCIFS(cmd *cobra.Command, args []string) {
 	options, _ := cmd.Flags().GetString(OptionsFlag)
 
 	creds := drivers.NewCifsCredentials(user, pass, domain, security, fileMode, dirMode)
-
-	d := drivers.NewCIFSDriver(rootForType(drivers.CIFS), consulAddress, consulToken, consulBaseKey, creds, netrc, options)
+	d := drivers.NewCIFSDriver(rootForType(drivers.CIFS), consulConfig, vaultConfig, useVault, creds, netrc, options)
 	if len(user) > 0 {
 		startOutput(fmt.Sprintf("CIFS :: %s, opts: %s", creds, options))
 	} else {

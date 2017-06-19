@@ -19,6 +19,11 @@ It is recommend to try mounting an NFS volume to eliminate any configuration iss
 sudo mount -t nfs4 1.1.1.1:/mountpoint /target/mount
 ```
 
+Consul is required to persist volumes configuration across restart
+
+Vault is required if you want to save passwords in a secure location
+
+
 ## Installation
 
 #### From Source
@@ -90,7 +95,7 @@ The method below will install the sysvinit and /etc/default options that can be 
 **1. Run the plugin - can be added to systemd or run in the background**
 
 ```
-  $ sudo docker-volume-netshare cifs --username user --password pass --domain domain --security security
+  $ sudo docker-volume-netshare cifs --username user --password pass --domain domain --security security ./docker-volume-netshare cifs --consul-address=http://consul --consul-token=consultoken --consul-base-key=cifs/ --vault-secret-id=theverylongsecretid --vault-base-key=secret/test-1/cifs/ --vault-address=https://vault --vault-role-id=test
 ```
 
 **2. Launch a container**

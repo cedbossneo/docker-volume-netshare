@@ -9,12 +9,14 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/dickeyxxx/netrc"
 	"github.com/docker/go-plugins-helpers/volume"
+	"strconv"
 )
 
 // Constants defining driver paremeters
 const (
 	UsernameOpt = "username"
 	PasswordOpt = "password"
+	UseVaultOpt = "use-vault"
 	DomainOpt   = "domain"
 	SecurityOpt = "security"
 	FileModeOpt = "fileMode"
@@ -28,6 +30,7 @@ type CifsDriver struct {
 	creds    *CifsCreds
 	netrc    *netrc.Netrc
 	cifsopts map[string]string
+	useVault bool
 }
 
 // CifsCreds contains Options for cifs-mount
@@ -45,17 +48,18 @@ func (creds *CifsCreds) String() string {
 }
 
 // NewCifsCredentials setting the credentials
-func NewCifsCredentials(user, pass, domain, security, fileMode, dirMode string) *CifsCreds {
+func NewCifsCredentials(user, pass string, domain, security, fileMode, dirMode string) *CifsCreds {
 	return &CifsCreds{user: user, pass: pass, domain: domain, security: security, fileMode: fileMode, dirMode: dirMode}
 }
 
 // NewCIFSDriver creating the cifs driver
-func NewCIFSDriver(root string, consulAddress string, consulToken string, consulBaseKey string, creds *CifsCreds, netrc, cifsopts string) CifsDriver {
+func NewCIFSDriver(root string, consulConfig *ConsulConfig, vaultConfig *VaultConfig, useVault bool, creds *CifsCreds, netrc, cifsopts string) CifsDriver {
 	d := CifsDriver{
-		volumeDriver: newVolumeDriver(root, consulAddress, consulToken, consulBaseKey),
+		volumeDriver: newVolumeDriver(root, consulConfig, vaultConfig),
 		creds:        creds,
 		netrc:        parseNetRC(netrc),
 		cifsopts:     map[string]string{},
+		useVault:	  useVault,
 	}
 	if len(cifsopts) > 0 {
 		d.cifsopts[CifsOpts] = cifsopts
@@ -196,6 +200,12 @@ func (c CifsDriver) mountVolume(name, source, dest string, creds *CifsCreds) err
 
 	if c.mountm.HasOptions(name) {
 		mopts := c.mountm.GetOptions(name)
+		if v, found := mopts[UseVaultOpt]; found {
+			useVault, _ := strconv.ParseBool(v)
+			if useVault {
+				mopts = c.mountm.FillVaultConfigInOpts(name, mopts)
+			}
+		}
 		if v, found := mopts[UsernameOpt]; found {
 			user = v
 		}

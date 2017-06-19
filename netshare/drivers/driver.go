@@ -6,16 +6,29 @@ import (
 	"sync"
 )
 
+type ConsulConfig struct {
+	Address string
+	Token   string
+	BaseKey string
+}
+
+type VaultConfig struct {
+	Address  string
+	SecretId string
+	RoleId	 string
+	BaseKey  string
+}
+
 type volumeDriver struct {
 	root   string
 	mountm *mountManager
 	m      *sync.Mutex
 }
 
-func newVolumeDriver(root string, consulAddress string, consulToken string, consulBaseKey string) volumeDriver {
+func newVolumeDriver(root string, consulConfig *ConsulConfig, vaultConfig *VaultConfig) volumeDriver {
 	return volumeDriver{
 		root:   root,
-		mountm: NewVolumeManager(consulAddress, consulToken, consulBaseKey),
+		mountm: NewVolumeManager(consulConfig, vaultConfig),
 		m:      &sync.Mutex{},
 	}
 }
